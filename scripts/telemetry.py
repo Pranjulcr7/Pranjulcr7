@@ -15,7 +15,7 @@ import json
 import re
 import sys
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 SITE = "https://pranjulgupta.com"
@@ -106,8 +106,13 @@ def render(data: dict | None, host: str, fonts: str = "", now: datetime | None =
     )
 
 
-def fetch_contributions(user: str = USER) -> list[tuple[str, int]]:
-    """Public contribution calendar. Empty when GitHub cannot be reached."""
+def fetch_contributions(user: str = USER) -> dict | None:
+    """GitHub's public contribution calendar, in the same rows, columns, and levels.
+
+    Returns None when GitHub cannot be reached. `total` is the count in GitHub's
+    heading. Each cell is one day from the table: row 0 is Sunday, `level` is
+    GitHub's 0-4 color, `count` is the number in that day's tooltip.
+    """
     request = urllib.request.Request(
         f"https://github.com/users/{user}/contributions",
         headers={"User-Agent": "github-profile-telemetry", "Accept": "text/html"},
@@ -117,57 +122,89 @@ def fetch_contributions(user: str = USER) -> list[tuple[str, int]]:
             page = response.read().decode()
     except Exception as exc:
         print(f"warning: contributions: {exc}", file=sys.stderr)
-        return []
-    days = re.findall(r'data-date="(\d{4}-\d{2}-\d{2})"[^>]*data-level="(\d)"', page)
-    return sorted((day, int(level)) for day, level in days)
+        return None
+    heading = re.search(r"([\d,]+)\s+contributions?\s+in the last year", page)
+    months = re.findall(
+        r'class="ContributionCalendar-label"[^>]*colspan="(\d+)"[\s\S]*?aria-hidden="true"[^>]*>([^<]+)',
+        page,
+    )
+    cells = []
+    for date, row, col, level in re.findall(
+        r'data-date="(\d{4}-\d{2}-\d{2})" id="contribution-day-component-(\d+)-(\d+)" data-level="(\d)"',
+        page,
+    ):
+        cells.append({"date": date, "row": int(row), "col": int(col), "level": int(level), "count": 0})
+    for cell_id, tip in re.findall(r'for="(contribution-day-component-\d+-\d+)"[^>]*>(.*?)</tool-tip>', page, re.S):
+        row_s, col_s = cell_id.rsplit("-", 2)[-2:]
+        count = re.search(r"([\d,]+)\s+contributions?", tip)
+        found = int(count.group(1).replace(",", "")) if count else 0
+        for cell in cells:
+            if cell["row"] == int(row_s) and cell["col"] == int(col_s):
+                cell["count"] = found
+                break
+    if not cells:
+        return None
+    total = int(heading.group(1).replace(",", "")) if heading else sum(cell["count"] for cell in cells)
+    return {"total": total, "months": [(label.strip(), int(span)) for span, label in months], "cells": cells}
 
 
-def render_contributions(days: list[tuple[str, int]], fonts: str = "", note: str | None = None) -> str:
-    """A year of contribution cells in the site's stage colors. `days` is (YYYY-MM-DD, level 0-4)."""
-    width, height = 1200, 280
+def render_contributions(calendar: dict | list | None, fonts: str = "", note: str | None = None) -> str:
+    """The same week grid GitHub shows, in the site's colors, with a light sweep.
+
+    Cells keep their fill if the animation is removed. The sweep starts invisible,
+    so a stripped animation does not leave a bar on top of the graph.
+    """
+    width, height = 1200, 292
     parts = [
         f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="14" fill="{BG}" stroke="{RULE}"/>',
         f'<rect x="40" y="38" width="22" height="2" fill="{ACCENT}"/>',
         f'<text class="m" x="72" y="45" font-size="16" letter-spacing="1.8" fill="{MUTED}">GITHUB CONTRIBUTIONS, LAST YEAR</text>',
     ]
-    if not days:
+    cells = calendar.get("cells") if isinstance(calendar, dict) else None
+    if not cells:
         message = note or "GitHub could not be reached for this refresh."
-        parts.append(f'<text class="d" x="40" y="150" font-size="72" fill="{MUTED}">No data</text>')
-        parts.append(f'<text class="t" x="40" y="198" font-size="21" fill="{MUTED}">{esc(message)}</text>')
+        parts.append(f'<text class="d" x="40" y="160" font-size="72" fill="{MUTED}">No data</text>')
+        parts.append(f'<text class="t" x="40" y="208" font-size="21" fill="{MUTED}">{esc(message)}</text>')
         total = 0
     else:
-        by_day = {day: min(4, level) for day, level in days}
-        start = datetime.strptime(days[0][0], "%Y-%m-%d")
-        start = start - timedelta(days=(start.weekday() + 1) % 7)
-        end = datetime.strptime(days[-1][0], "%Y-%m-%d")
-        columns = (end - start).days // 7 + 1
-        cell, gap = 14, 4
-        origin_x, origin_y = 48, 96
-        months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-        last_month = -1
-        active = sum(1 for level in by_day.values() if level)
-        total = sum(by_day.values())
-        parts.append(f'<text class="d" x="{width - 40}" y="52" font-size="42" text-anchor="end" fill="{TEXT}">{active}</text>')
-        parts.append(f'<text class="m" x="{width - 40}" y="74" font-size="13" letter-spacing="1.1" text-anchor="end" fill="{FAINT}">ACTIVE DAYS</text>')
-        for col in range(columns):
-            week = start + timedelta(days=col * 7)
-            if week.month != last_month and week >= datetime.strptime(days[0][0], "%Y-%m-%d") - timedelta(days=6):
-                last_month = week.month
-                parts.append(f'<text class="m" x="{origin_x + col * (cell + gap)}" y="86" font-size="12" fill="{FAINT}">{months[week.month - 1]}</text>')
-            for row in range(7):
-                day = (week + timedelta(days=row)).strftime("%Y-%m-%d")
-                if day not in by_day:
-                    continue
-                level = by_day[day]
-                x = origin_x + col * (cell + gap)
-                y = origin_y + row * (cell + gap)
-                parts.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{cell}" rx="3" fill="{LEVELS[level]}"/>')
+        total = int(calendar.get("total") if calendar.get("total") is not None else sum(cell["count"] for cell in cells))
+        columns = max(cell["col"] for cell in cells) + 1
+        cell_size, gap = 13, 3
+        step = cell_size + gap
+        origin_x, origin_y = 72, 108
+        parts.append(f'<text class="d" x="{width - 40}" y="56" font-size="48" text-anchor="end" fill="{TEXT}">{total}</text>')
+        parts.append(f'<text class="m" x="{width - 40}" y="76" font-size="13" letter-spacing="1.1" text-anchor="end" fill="{FAINT}">CONTRIBUTIONS</text>')
+        column = 0
+        for label, span in calendar.get("months") or []:
+            parts.append(f'<text class="m" x="{origin_x + column * step}" y="96" font-size="12" fill="{FAINT}">{esc(label)}</text>')
+            column += span
+        for name, row in (("Mon", 1), ("Wed", 3), ("Fri", 5)):
+            parts.append(f'<text class="m" x="40" y="{origin_y + row * step + 11}" font-size="11" fill="{FAINT}">{name}</text>')
+        for cell in cells:
+            level = min(4, max(0, int(cell["level"])))
+            x = origin_x + int(cell["col"]) * step
+            y = origin_y + int(cell["row"]) * step
+            delay = int(cell["col"]) * 0.028 + int(cell["row"]) * 0.012
+            parts.append(
+                f'<rect x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" rx="3" fill="{LEVELS[level]}" opacity="1">'
+                f'<title>{cell["count"]} on {cell["date"]}</title>'
+                f'<animate attributeName="opacity" values="0;1" dur="0.4s" begin="{delay:.2f}s" fill="freeze"/>'
+                f"</rect>"
+            )
+        grid_h = 7 * step - gap
+        sweep_w = cell_size + 6
+        parts.append(
+            f'<rect x="{origin_x}" y="{origin_y - 2}" width="{sweep_w}" height="{grid_h + 4}" rx="4" fill="{LEVELS[4]}" opacity="0">'
+            f'<animate attributeName="x" from="{origin_x}" to="{origin_x + columns * step}" dur="3.4s" repeatCount="indefinite"/>'
+            f'<animate attributeName="opacity" values="0;0.28;0" dur="3.4s" repeatCount="indefinite"/>'
+            f"</rect>"
+        )
         legend_x = origin_x
-        parts.append(f'<text class="m" x="{legend_x}" y="{height - 22}" font-size="12" fill="{FAINT}">LESS</text>')
+        parts.append(f'<text class="m" x="{legend_x}" y="{height - 18}" font-size="12" fill="{FAINT}">LESS</text>')
         for i, color in enumerate(LEVELS):
-            parts.append(f'<rect x="{legend_x + 52 + i * 20}" y="{height - 34}" width="12" height="12" rx="2" fill="{color}"/>')
-        parts.append(f'<text class="m" x="{legend_x + 160}" y="{height - 22}" font-size="12" fill="{FAINT}">MORE</text>')
-    title = f"GitHub contributions, last year: {total} level points across the calendar" if days else "GitHub contributions: no data"
+            parts.append(f'<rect x="{legend_x + 52 + i * 20}" y="{height - 30}" width="12" height="12" rx="2" fill="{color}"/>')
+        parts.append(f'<text class="m" x="{legend_x + 160}" y="{height - 18}" font-size="12" fill="{FAINT}">MORE</text>')
+    title = f"{total} contributions in the last year" if cells else "GitHub contributions: no data"
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" aria-label="{esc(title)}">'
         f"<title>{esc(title)}</title><style>{fonts}"
@@ -190,7 +227,7 @@ def main() -> int:
         encoding="utf-8",
     )
     print(f"wrote {OUT}")
-    print(f"wrote {CONTRIBUTIONS} ({len(days)} days)")
+    print(f"wrote {CONTRIBUTIONS} ({0 if not days else len(days.get('cells', []))} days, {0 if not days else days.get('total')} contributions)")
     return 0
 
 

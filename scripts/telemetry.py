@@ -149,10 +149,9 @@ def fetch_contributions(user: str = USER) -> dict | None:
 
 
 def render_contributions(calendar: dict | list | None, fonts: str = "", note: str | None = None) -> str:
-    """The same week grid GitHub shows, in the site's colors, with a light sweep.
+    """The same week grid GitHub shows, in the site's colors.
 
-    Cells keep their fill if the animation is removed. The sweep starts invisible,
-    so a stripped animation does not leave a bar on top of the graph.
+    Cells fade in, and they keep their fill if the animation is removed.
     """
     width, height = 1200, 292
     parts = [
@@ -168,7 +167,6 @@ def render_contributions(calendar: dict | list | None, fonts: str = "", note: st
         total = 0
     else:
         total = int(calendar.get("total") if calendar.get("total") is not None else sum(cell["count"] for cell in cells))
-        columns = max(cell["col"] for cell in cells) + 1
         cell_size, gap = 13, 3
         step = cell_size + gap
         origin_x, origin_y = 72, 108
@@ -191,14 +189,6 @@ def render_contributions(calendar: dict | list | None, fonts: str = "", note: st
                 f'<animate attributeName="opacity" values="0;1" dur="0.4s" begin="{delay:.2f}s" fill="freeze"/>'
                 f"</rect>"
             )
-        grid_h = 7 * step - gap
-        sweep_w = cell_size + 6
-        parts.append(
-            f'<rect x="{origin_x}" y="{origin_y - 2}" width="{sweep_w}" height="{grid_h + 4}" rx="4" fill="{LEVELS[4]}" opacity="0">'
-            f'<animate attributeName="x" from="{origin_x}" to="{origin_x + columns * step}" dur="3.4s" repeatCount="indefinite"/>'
-            f'<animate attributeName="opacity" values="0;0.28;0" dur="3.4s" repeatCount="indefinite"/>'
-            f"</rect>"
-        )
         legend_x = origin_x
         parts.append(f'<text class="m" x="{legend_x}" y="{height - 18}" font-size="12" fill="{FAINT}">LESS</text>')
         for i, color in enumerate(LEVELS):

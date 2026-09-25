@@ -54,13 +54,28 @@ def seconds(ms: float | None) -> str:
     return f"{ms / 1000:.2f} s" if ms >= 1000 else f"{round(ms)} ms"
 
 
+def wrap_words(text: str, limit: int) -> list[str]:
+    """Greedy word wrap at `limit` characters."""
+    lines: list[str] = []
+    current = ""
+    for word in text.split():
+        if current and len(current) + 1 + len(word) > limit:
+            lines.append(current)
+            current = word
+        else:
+            current = f"{current} {word}".strip()
+    if current:
+        lines.append(current)
+    return lines
+
+
 def render(data: dict | None, host: str, fonts: str = "", now: datetime | None = None, note: str | None = None) -> str:
     """The card; `data` is the /api/metrics?range=7d response, or None when unavailable.
     `note` replaces the empty-state message (the first card, before any refresh)."""
     now = now or datetime.now(timezone.utc)
     totals = (data or {}).get("totals") or {}
     requests = int(totals.get("requests") or 0)
-    width, height = 1200, 270
+    width, height = 1200, 292
     parts = [
         f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="14" fill="{BG}" stroke="{RULE}"/>',
         f'<rect x="40" y="38" width="22" height="2" fill="{ACCENT}"/>',
@@ -83,17 +98,20 @@ def render(data: dict | None, host: str, fonts: str = "", now: datetime | None =
             (groq_share, "of model answers on Groq"),
         ]
         cell = (width - 80) / len(cells)
+        # About 9.5px per character at 19px: wrap so a label never runs into the next column.
+        fit = max(8, int((cell - 28) / 9.5))
         for i, (value, label) in enumerate(cells):
             x = 40 + i * cell
             parts.append(f'<text class="d" x="{x:.0f}" y="150" font-size="76" fill="{TEXT}">{esc(value)}</text>')
-            parts.append(f'<text class="t" x="{x:.0f}" y="188" font-size="19" fill="{MUTED}">{esc(label)}</text>')
+            for n, line in enumerate(wrap_words(label, fit)[:2]):
+                parts.append(f'<text class="t" x="{x:.0f}" y="{188 + n * 24}" font-size="19" fill="{MUTED}">{esc(line)}</text>')
         series = [int(b.get("requests") or 0) for b in data.get("series") or []]
         if series and max(series) > 0:
             peak = max(series)
             bar = (width - 80) / len(series)
             for i, value in enumerate(series):
                 h = 24 * value / peak
-                parts.append(f'<rect x="{40 + i * bar:.1f}" y="{246 - h:.1f}" width="{max(1.0, bar - 2):.1f}" height="{max(1.0, h):.1f}" rx="1" fill="{ACCENT_TEXT}" opacity=".7"/>')
+                parts.append(f'<rect x="{40 + i * bar:.1f}" y="{268 - h:.1f}" width="{max(1.0, bar - 2):.1f}" height="{max(1.0, h):.1f}" rx="1" fill="{ACCENT_TEXT}" opacity=".7"/>')
     parts.append(f'<text class="m" x="{width - 40}" y="45" font-size="15" text-anchor="end" fill="{FAINT}">UPDATED {now:%Y-%m-%d %H:%M} UTC</text>')
     title = f"Live assistant telemetry from {host}, last 7 days: {requests} questions" if requests else f"Live assistant telemetry from {host}: no data"
     return (
@@ -152,12 +170,13 @@ def render_contributions(calendar: dict | list | None, fonts: str = "", note: st
     """The same week grid GitHub shows, in the site's colors.
 
     The cells are sized from the number of weeks so the grid spans the card; the total, the
-    month labels, and the legend line up with its edges. A month label shows only where its
-    weeks leave room for it (a partial first or last month often does not). Cells fade in,
-    and they keep their fill if the animation is removed.
+    month labels, and the legend line up with its edges. As on GitHub, a month is labelled only
+    when it spans at least three weeks, so a partial first month never crowds the next label.
+    Fully static (no animation): GitHub shows the card as an image, and every cell is drawn as
+    is wherever it is viewed. Text is sized to stay legible at the README's width (about 830px).
     """
     width = 1200
-    left, right = 72, 40
+    left, right = 84, 40
     cells = calendar.get("cells") if isinstance(calendar, dict) else None
     parts: list[str] = []
     if not cells:
@@ -171,38 +190,36 @@ def render_contributions(calendar: dict | list | None, fonts: str = "", note: st
         cols = max(int(cell["col"]) for cell in cells) + 1
         step = max(8, min(22, (width - left - right + 4) // cols))
         cell_size = step - 4
-        grid_top = 124
+        grid_top = 132
         grid_right = left + cols * step - 4
         grid_bottom = grid_top + 7 * step - 4
-        height = grid_bottom + 52
-        parts.append(f'<text class="d" x="{grid_right}" y="58" font-size="48" text-anchor="end" fill="{TEXT}">{total}</text>')
-        parts.append(f'<text class="m" x="{grid_right}" y="80" font-size="13" letter-spacing="1.1" text-anchor="end" fill="{FAINT}">CONTRIBUTIONS</text>')
+        height = grid_bottom + 60
+        parts.append(f'<text class="d" x="{grid_right}" y="62" font-size="56" text-anchor="end" fill="{TEXT}">{total}</text>')
+        parts.append(f'<text class="m" x="{grid_right}" y="88" font-size="14" letter-spacing="1.2" text-anchor="end" fill="{FAINT}">CONTRIBUTIONS</text>')
         column = 0
         for label, span in calendar.get("months") or []:
-            if span * step >= 36:
-                parts.append(f'<text class="m" x="{left + column * step}" y="{grid_top - 12}" font-size="12" fill="{FAINT}">{esc(label)}</text>')
+            if span >= 3:
+                parts.append(f'<text class="m" x="{left + column * step}" y="{grid_top - 14}" font-size="15" fill="{MUTED}">{esc(label)}</text>')
             column += span
         for name, row in (("Mon", 1), ("Wed", 3), ("Fri", 5)):
-            parts.append(f'<text class="m" x="{right}" y="{grid_top + row * step + cell_size - 3}" font-size="11" fill="{FAINT}">{name}</text>')
+            parts.append(f'<text class="m" x="{right}" y="{grid_top + row * step + cell_size - 2}" font-size="14" fill="{FAINT}">{name}</text>')
         for cell in cells:
             level = min(4, max(0, int(cell["level"])))
             x = left + int(cell["col"]) * step
             y = grid_top + int(cell["row"]) * step
-            delay = int(cell["col"]) * 0.028 + int(cell["row"]) * 0.012
             parts.append(
-                f'<rect x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" rx="3" fill="{LEVELS[level]}" opacity="1">'
+                f'<rect x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" rx="3" fill="{LEVELS[level]}">'
                 f'<title>{cell["count"]} on {cell["date"]}</title>'
-                f'<animate attributeName="opacity" values="0;1" dur="0.4s" begin="{delay:.2f}s" fill="freeze"/>'
                 f"</rect>"
             )
         # Legend under the grid's right edge, as on GitHub: LESS, five swatches, MORE.
-        legend_y = grid_bottom + 30
-        more_x = grid_right - 34
-        swatches_x = more_x - 12 - len(LEVELS) * 18
-        parts.append(f'<text class="m" x="{swatches_x - 10}" y="{legend_y}" font-size="12" text-anchor="end" fill="{FAINT}">LESS</text>')
+        legend_y = grid_bottom + 36
+        more_x = grid_right - 40
+        swatches_x = more_x - 14 - len(LEVELS) * 21
+        parts.append(f'<text class="m" x="{swatches_x - 12}" y="{legend_y}" font-size="14" text-anchor="end" fill="{FAINT}">LESS</text>')
         for i, color in enumerate(LEVELS):
-            parts.append(f'<rect x="{swatches_x + i * 18}" y="{legend_y - 11}" width="12" height="12" rx="2" fill="{color}"/>')
-        parts.append(f'<text class="m" x="{more_x}" y="{legend_y}" font-size="12" fill="{FAINT}">MORE</text>')
+            parts.append(f'<rect x="{swatches_x + i * 21}" y="{legend_y - 13}" width="15" height="15" rx="3" fill="{color}"/>')
+        parts.append(f'<text class="m" x="{more_x}" y="{legend_y}" font-size="14" fill="{FAINT}">MORE</text>')
     frame = [
         f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="14" fill="{BG}" stroke="{RULE}"/>',
         f'<rect x="40" y="38" width="22" height="2" fill="{ACCENT}"/>',

@@ -50,6 +50,12 @@ The assistant on my site answers only from my published profile and shows which 
 
 <sub>Refreshed daily by a GitHub Action from the site's own logs (Cloudflare D1). Site telemetry, not career statistics.</sub>
 
+### Contributions
+
+<img src="assets/contributions.svg" width="100%" alt="GitHub contributions over the last year">
+
+<sub>The same year GitHub counts below, redrawn daily. Public commits, pull requests, and issues only.</sub>
+
 <img src="assets/stack.svg" width="100%" alt="Stack">
 
 ---

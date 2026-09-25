@@ -151,37 +151,43 @@ def fetch_contributions(user: str = USER) -> dict | None:
 def render_contributions(calendar: dict | list | None, fonts: str = "", note: str | None = None) -> str:
     """The same week grid GitHub shows, in the site's colors.
 
-    Cells fade in, and they keep their fill if the animation is removed.
+    The cells are sized from the number of weeks so the grid spans the card; the total, the
+    month labels, and the legend line up with its edges. A month label shows only where its
+    weeks leave room for it (a partial first or last month often does not). Cells fade in,
+    and they keep their fill if the animation is removed.
     """
-    width, height = 1200, 292
-    parts = [
-        f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="14" fill="{BG}" stroke="{RULE}"/>',
-        f'<rect x="40" y="38" width="22" height="2" fill="{ACCENT}"/>',
-        f'<text class="m" x="72" y="45" font-size="16" letter-spacing="1.8" fill="{MUTED}">GITHUB CONTRIBUTIONS, LAST YEAR</text>',
-    ]
+    width = 1200
+    left, right = 72, 40
     cells = calendar.get("cells") if isinstance(calendar, dict) else None
+    parts: list[str] = []
     if not cells:
+        height = 292
         message = note or "GitHub could not be reached for this refresh."
         parts.append(f'<text class="d" x="40" y="160" font-size="72" fill="{MUTED}">No data</text>')
         parts.append(f'<text class="t" x="40" y="208" font-size="21" fill="{MUTED}">{esc(message)}</text>')
         total = 0
     else:
         total = int(calendar.get("total") if calendar.get("total") is not None else sum(cell["count"] for cell in cells))
-        cell_size, gap = 13, 3
-        step = cell_size + gap
-        origin_x, origin_y = 72, 108
-        parts.append(f'<text class="d" x="{width - 40}" y="56" font-size="48" text-anchor="end" fill="{TEXT}">{total}</text>')
-        parts.append(f'<text class="m" x="{width - 40}" y="76" font-size="13" letter-spacing="1.1" text-anchor="end" fill="{FAINT}">CONTRIBUTIONS</text>')
+        cols = max(int(cell["col"]) for cell in cells) + 1
+        step = max(8, min(22, (width - left - right + 4) // cols))
+        cell_size = step - 4
+        grid_top = 124
+        grid_right = left + cols * step - 4
+        grid_bottom = grid_top + 7 * step - 4
+        height = grid_bottom + 52
+        parts.append(f'<text class="d" x="{grid_right}" y="58" font-size="48" text-anchor="end" fill="{TEXT}">{total}</text>')
+        parts.append(f'<text class="m" x="{grid_right}" y="80" font-size="13" letter-spacing="1.1" text-anchor="end" fill="{FAINT}">CONTRIBUTIONS</text>')
         column = 0
         for label, span in calendar.get("months") or []:
-            parts.append(f'<text class="m" x="{origin_x + column * step}" y="96" font-size="12" fill="{FAINT}">{esc(label)}</text>')
+            if span * step >= 36:
+                parts.append(f'<text class="m" x="{left + column * step}" y="{grid_top - 12}" font-size="12" fill="{FAINT}">{esc(label)}</text>')
             column += span
         for name, row in (("Mon", 1), ("Wed", 3), ("Fri", 5)):
-            parts.append(f'<text class="m" x="40" y="{origin_y + row * step + 11}" font-size="11" fill="{FAINT}">{name}</text>')
+            parts.append(f'<text class="m" x="{right}" y="{grid_top + row * step + cell_size - 3}" font-size="11" fill="{FAINT}">{name}</text>')
         for cell in cells:
             level = min(4, max(0, int(cell["level"])))
-            x = origin_x + int(cell["col"]) * step
-            y = origin_y + int(cell["row"]) * step
+            x = left + int(cell["col"]) * step
+            y = grid_top + int(cell["row"]) * step
             delay = int(cell["col"]) * 0.028 + int(cell["row"]) * 0.012
             parts.append(
                 f'<rect x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" rx="3" fill="{LEVELS[level]}" opacity="1">'
@@ -189,11 +195,19 @@ def render_contributions(calendar: dict | list | None, fonts: str = "", note: st
                 f'<animate attributeName="opacity" values="0;1" dur="0.4s" begin="{delay:.2f}s" fill="freeze"/>'
                 f"</rect>"
             )
-        legend_x = origin_x
-        parts.append(f'<text class="m" x="{legend_x}" y="{height - 18}" font-size="12" fill="{FAINT}">LESS</text>')
+        # Legend under the grid's right edge, as on GitHub: LESS, five swatches, MORE.
+        legend_y = grid_bottom + 30
+        more_x = grid_right - 34
+        swatches_x = more_x - 12 - len(LEVELS) * 18
+        parts.append(f'<text class="m" x="{swatches_x - 10}" y="{legend_y}" font-size="12" text-anchor="end" fill="{FAINT}">LESS</text>')
         for i, color in enumerate(LEVELS):
-            parts.append(f'<rect x="{legend_x + 52 + i * 20}" y="{height - 30}" width="12" height="12" rx="2" fill="{color}"/>')
-        parts.append(f'<text class="m" x="{legend_x + 160}" y="{height - 18}" font-size="12" fill="{FAINT}">MORE</text>')
+            parts.append(f'<rect x="{swatches_x + i * 18}" y="{legend_y - 11}" width="12" height="12" rx="2" fill="{color}"/>')
+        parts.append(f'<text class="m" x="{more_x}" y="{legend_y}" font-size="12" fill="{FAINT}">MORE</text>')
+    frame = [
+        f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="14" fill="{BG}" stroke="{RULE}"/>',
+        f'<rect x="40" y="38" width="22" height="2" fill="{ACCENT}"/>',
+        f'<text class="m" x="72" y="45" font-size="16" letter-spacing="1.8" fill="{MUTED}">GITHUB CONTRIBUTIONS, LAST YEAR</text>',
+    ]
     title = f"{total} contributions in the last year" if cells else "GitHub contributions: no data"
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" aria-label="{esc(title)}">'
@@ -201,7 +215,7 @@ def render_contributions(calendar: dict | list | None, fonts: str = "", note: st
         ".d{font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-weight:600}"
         ".m{font-family:'JetBrains Mono',ui-monospace,monospace}"
         ".t{font-family:'IBM Plex Sans',system-ui,sans-serif}</style>"
-        f"{''.join(parts)}</svg>\n"
+        f"{''.join(frame + parts)}</svg>\n"
     )
 
 

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import html
 import json
-import re
 import sys
 import urllib.request
 from datetime import datetime, timezone
@@ -21,9 +20,6 @@ from pathlib import Path
 SITE = "https://pranjulgupta.com"
 HERE = Path(__file__).resolve().parent
 OUT = HERE.parent / "assets" / "telemetry.svg"
-CONTRIBUTIONS = HERE.parent / "assets" / "contributions.svg"
-USER = "Pranjulcr7"
-LEVELS = ("#2a2c2e", "#5c3d36", "#a85a42", "#da5d3e", "#f6d2c6")
 
 BG = "#101112"
 TEXT = "#f2f0ea"
@@ -124,131 +120,13 @@ def render(data: dict | None, host: str, fonts: str = "", now: datetime | None =
     )
 
 
-def fetch_contributions(user: str = USER) -> dict | None:
-    """GitHub's public contribution calendar, in the same rows, columns, and levels.
-
-    Returns None when GitHub cannot be reached. `total` is the count in GitHub's
-    heading. Each cell is one day from the table: row 0 is Sunday, `level` is
-    GitHub's 0-4 color, `count` is the number in that day's tooltip.
-    """
-    request = urllib.request.Request(
-        f"https://github.com/users/{user}/contributions",
-        headers={"User-Agent": "github-profile-telemetry", "Accept": "text/html"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 (fixed https URL)
-            page = response.read().decode()
-    except Exception as exc:
-        print(f"warning: contributions: {exc}", file=sys.stderr)
-        return None
-    heading = re.search(r"([\d,]+)\s+contributions?\s+in the last year", page)
-    months = re.findall(
-        r'class="ContributionCalendar-label"[^>]*colspan="(\d+)"[\s\S]*?aria-hidden="true"[^>]*>([^<]+)',
-        page,
-    )
-    cells = []
-    for date, row, col, level in re.findall(
-        r'data-date="(\d{4}-\d{2}-\d{2})" id="contribution-day-component-(\d+)-(\d+)" data-level="(\d)"',
-        page,
-    ):
-        cells.append({"date": date, "row": int(row), "col": int(col), "level": int(level), "count": 0})
-    for cell_id, tip in re.findall(r'for="(contribution-day-component-\d+-\d+)"[^>]*>(.*?)</tool-tip>', page, re.S):
-        row_s, col_s = cell_id.rsplit("-", 2)[-2:]
-        count = re.search(r"([\d,]+)\s+contributions?", tip)
-        found = int(count.group(1).replace(",", "")) if count else 0
-        for cell in cells:
-            if cell["row"] == int(row_s) and cell["col"] == int(col_s):
-                cell["count"] = found
-                break
-    if not cells:
-        return None
-    total = int(heading.group(1).replace(",", "")) if heading else sum(cell["count"] for cell in cells)
-    return {"total": total, "months": [(label.strip(), int(span)) for span, label in months], "cells": cells}
-
-
-def render_contributions(calendar: dict | list | None, fonts: str = "", note: str | None = None) -> str:
-    """The same week grid GitHub shows, in the site's colors.
-
-    The cells are sized from the number of weeks so the grid spans the card; the total, the
-    month labels, and the legend line up with its edges. As on GitHub, a month is labelled only
-    when it spans at least three weeks, so a partial first month never crowds the next label.
-    Fully static (no animation): GitHub shows the card as an image, and every cell is drawn as
-    is wherever it is viewed. Text is sized to stay legible at the README's width (about 830px).
-    """
-    width = 1200
-    left, right = 84, 40
-    cells = calendar.get("cells") if isinstance(calendar, dict) else None
-    parts: list[str] = []
-    if not cells:
-        height = 292
-        message = note or "GitHub could not be reached for this refresh."
-        parts.append(f'<text class="d" x="40" y="160" font-size="72" fill="{MUTED}">No data</text>')
-        parts.append(f'<text class="t" x="40" y="208" font-size="21" fill="{MUTED}">{esc(message)}</text>')
-        total = 0
-    else:
-        total = int(calendar.get("total") if calendar.get("total") is not None else sum(cell["count"] for cell in cells))
-        cols = max(int(cell["col"]) for cell in cells) + 1
-        step = max(8, min(22, (width - left - right + 4) // cols))
-        cell_size = step - 4
-        grid_top = 132
-        grid_right = left + cols * step - 4
-        grid_bottom = grid_top + 7 * step - 4
-        height = grid_bottom + 60
-        parts.append(f'<text class="d" x="{grid_right}" y="62" font-size="56" text-anchor="end" fill="{TEXT}">{total}</text>')
-        parts.append(f'<text class="m" x="{grid_right}" y="88" font-size="14" letter-spacing="1.2" text-anchor="end" fill="{FAINT}">CONTRIBUTIONS</text>')
-        column = 0
-        for label, span in calendar.get("months") or []:
-            if span >= 3:
-                parts.append(f'<text class="m" x="{left + column * step}" y="{grid_top - 14}" font-size="15" fill="{MUTED}">{esc(label)}</text>')
-            column += span
-        for name, row in (("Mon", 1), ("Wed", 3), ("Fri", 5)):
-            parts.append(f'<text class="m" x="{right}" y="{grid_top + row * step + cell_size - 2}" font-size="14" fill="{FAINT}">{name}</text>')
-        for cell in cells:
-            level = min(4, max(0, int(cell["level"])))
-            x = left + int(cell["col"]) * step
-            y = grid_top + int(cell["row"]) * step
-            parts.append(
-                f'<rect x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" rx="3" fill="{LEVELS[level]}">'
-                f'<title>{cell["count"]} on {cell["date"]}</title>'
-                f"</rect>"
-            )
-        # Legend under the grid's right edge, as on GitHub: LESS, five swatches, MORE.
-        legend_y = grid_bottom + 36
-        more_x = grid_right - 40
-        swatches_x = more_x - 14 - len(LEVELS) * 21
-        parts.append(f'<text class="m" x="{swatches_x - 12}" y="{legend_y}" font-size="14" text-anchor="end" fill="{FAINT}">LESS</text>')
-        for i, color in enumerate(LEVELS):
-            parts.append(f'<rect x="{swatches_x + i * 21}" y="{legend_y - 13}" width="15" height="15" rx="3" fill="{color}"/>')
-        parts.append(f'<text class="m" x="{more_x}" y="{legend_y}" font-size="14" fill="{FAINT}">MORE</text>')
-    frame = [
-        f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="14" fill="{BG}" stroke="{RULE}"/>',
-        f'<rect x="40" y="38" width="22" height="2" fill="{ACCENT}"/>',
-        f'<text class="m" x="72" y="45" font-size="16" letter-spacing="1.8" fill="{MUTED}">GITHUB CONTRIBUTIONS, LAST YEAR</text>',
-    ]
-    title = f"{total} contributions in the last year" if cells else "GitHub contributions: no data"
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" aria-label="{esc(title)}">'
-        f"<title>{esc(title)}</title><style>{fonts}"
-        ".d{font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-weight:600}"
-        ".m{font-family:'JetBrains Mono',ui-monospace,monospace}"
-        ".t{font-family:'IBM Plex Sans',system-ui,sans-serif}</style>"
-        f"{''.join(frame + parts)}</svg>\n"
-    )
-
-
 def main() -> int:
     fonts_file = HERE / "fonts.css"
     fonts = fonts_file.read_text() if fonts_file.exists() else ""
     data = fetch(f"{SITE}/api/metrics?range=7d")
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(render(data, SITE.removeprefix("https://"), fonts), encoding="utf-8")
-    days = fetch_contributions()
-    CONTRIBUTIONS.write_text(
-        render_contributions(days, fonts, note=None if days else "Waiting for the first daily refresh."),
-        encoding="utf-8",
-    )
     print(f"wrote {OUT}")
-    print(f"wrote {CONTRIBUTIONS} ({0 if not days else len(days.get('cells', []))} days, {0 if not days else days.get('total')} contributions)")
     return 0
 
 

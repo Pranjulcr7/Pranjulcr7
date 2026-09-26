@@ -54,7 +54,7 @@ The assistant on my site answers only from my published profile and shows which 
 
 <img src="assets/contributions.svg" width="100%" alt="GitHub contributions over the last year">
 
-<sub>The same year GitHub counts below, redrawn daily. Public commits, pull requests, and issues only.</sub>
+<sub>The same year GitHub shows below, redrawn daily from GitHub's own calendar. Work in private repositories counts as numbers only.</sub>
 
 <img src="assets/stack.svg" width="100%" alt="Stack">
 

@@ -15,7 +15,9 @@ Backend and ML systems engineer. Four years at Disney+ (Hotstar, India streaming
 
 **Open source:** Spanish ASR recipe for ESPnet, merged ([pull request #6491](https://github.com/espnet/espnet/pull/6491) · [model on Hugging Face](https://huggingface.co/PranjulGupta/heroico-asr-conformer-es))
 
-<sub>Pittsburgh, PA, open to relocation · Work authorization: STEM OPT (3 years)</sub>
+**Also merged:** [NVIDIA Dynamo](https://github.com/ai-dynamo/dynamo/pull/15923) · [CNCF KAI Scheduler](https://github.com/kai-scheduler/KAI-Scheduler/pull/2272) · [MLX-LM](https://github.com/ml-explore/mlx-lm/pull/1926) · [Feast](https://github.com/feast-dev/feast/pull/6878) · [Apple Pkl Go](https://github.com/apple/pkl-go/pull/268)
+
+<sub>Pittsburgh, PA, open to relocation · Work authorization: F-1 student. After graduating in December 2026 he plans to work on OPT, followed by the STEM OPT extension.</sub>
 
 <img src="assets/numbers.svg" width="100%" alt="Career numbers: see the website for each number's scope">
 
@@ -26,7 +28,7 @@ Backend and ML systems engineer. Four years at Disney+ (Hotstar, India streaming
 | **Spanish ASR recipe for ESPnet**<br><sub>WAVLab, Carnegie Mellon University<br><b>Open-source ML / Evaluation and debugging</b></sub> | A Spanish speech recipe for ESPnet, and the evaluation bug that was too good to be true. | Dev WER 24.4%; overall test WER 56.3% under substantial domain and channel shift; 18.9% WER on the 711-utterance spontaneous-answer subset with novel speakers.<br>[PR](https://github.com/espnet/espnet/pull/6491) · [model](https://huggingface.co/PranjulGupta/heroico-asr-conformer-es) |
 | **Continue Watching**<br><sub>Disney+<br><b>Distributed systems / End-to-end ownership</b></sub> | The tray that remembers where you stopped, for tens of millions of viewers. | 72.5% fewer home-page requests per minute after a live match (8 million down to 2.2 million in that post-match window). |
 | **Two-phase tray ranking**<br><sub>Disney+<br><b>Production ML / Low-latency serving</b></sub> | Ranking 200+ trays per session in 50 ms at p99. | Ranking service p99 latency of 50 ms across 200+ candidate trays per session (service latency, not end-to-end page latency). |
-| **pranjulgupta.com**<br><sub>Personal project</sub> | An assistant that can only say what the profile says. | 32 evaluation questions check retrieval and answers, including facts that are not on record (my age, Rust) and prompt-injection attempts, which must not produce an invented fact or the system prompt.<br>[live](https://pranjulgupta.com) · [ask it](https://pranjulgupta.com/ask) |
+| **pranjulgupta.com**<br><sub>Personal project</sub> | An assistant built to answer from one reviewed profile. | 55 evaluation cases. The default run uses a mock model and checks routing, retrieval, the stream contract, and failure handling: a cut-off answer, a spent budget, a failed verification. Checks of model behavior (unknown facts such as my age or Rust, prompt injection, merged versus open pull requests, off-topic questions) run only in separate, capped runs against Groq or Gemini.<br>[live](https://pranjulgupta.com) · [ask it](https://pranjulgupta.com/ask) |
 
 ### Live from the assistant
 
